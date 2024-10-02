@@ -194,4 +194,89 @@ Kubernetes, Docker, MongoDB, Mongo Express
 
   ![Diagram](./images/k8s-project1-5.png)
 
+# Demo Project 2
+
+Deploy Mosquitto message broker with ConfigMap and Secret Volume Types
+
+## Technologies Used
+
+Kubernetes, Docker, Mosquitto
+
+## Project Description
+
+- Define configuration and passwords for Mosquitto message broker with ConfigMap and Secret Volume types
+
+### Details of project
+
+The files used in this project can be found in this repository, under the folder configmap-and-secret-volume-types.
+
+- Creating a ConfigMap
+
+  In this project, both the ConfigMap and Secret will be used to generate files that will be utilized by the Mosquitto pod, a message broker used for demonstration purposes.
+
+  The ConfigMap and Secret are set to create a file, with the name defined after the data section, and the content written after the pipe will be the file's content. The Secret's content is encoded in base64 format.
+
+- Deploying Mosquitto Without Volumes
+
+  In this section, a deployment was created using Minikube with the file mosquitto-without-volumes.yaml.
+
+  ```
+    kubectl apply -f mosquitto-without-volumes.yaml
+  ```
+
+  ![Diagram](./images/k8s-project2-1.png)
+
+  We can see that the deployment was successfully created, and upon entering the container, it’s possible to access its default files. Mosquitto has a default configuration file called mosquitto.conf, which will be overwritten using the ConfigMap by mounting it inside the container.
+
+- Applying the ConfigMap and Secret
+
+  The ConfigMap and Secret must be created before the Mosquitto pod to avoid execution errors.
+
+  ```
+    kubectl apply -f config-file.yaml
+  ```
+
+  ```
+    kubectl apply -f secret-file.yaml
+  ```
+
+  ![Diagram](./images/k8s-project2-2.png)
+
+- Configuring mosquitto.yaml
+
+  To allow Mosquitto to use the volumes created by the ConfigMap and Secret, a volumes attribute is added at the container level. This will create the volumes inside the pod:
+
+  ```
+    volumes:
+      - name: mosquitto-config
+        configMap:
+          name: mosquitto-config-file
+      - name: mosquitto-secret
+        secret:
+          secretName: mosquitto-secret-file
+  ```   
+  Next, the volumes must be mounted inside the container. They need to be available in the pods and mounted in the correct directories to ensure the proper overwriting of files. Setting readOnly: true ensures that the files cannot be modified by the application.
+
+  ```
+    volumeMounts: 
+      - name: mosquitto-config
+        mountPath: /mosquitto/config
+      - name: mosquitto-secret
+        mountPath: /mosquitto/secret
+        readOnly: true
+  ```
+
+  ```
+    kubectl apply -f mosquitto.yaml
+  ```
+  ![Diagram](./images/k8s-project2-3.png)
+
+  After entering the container, we can confirm that the secret.file was successfully created, and the mosquitto.conf file was updated with the content defined in the ConfigMap.
+
+
+
+
+
+
+
 
