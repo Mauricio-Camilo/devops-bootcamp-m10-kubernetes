@@ -13,7 +13,7 @@ spec:
     metadata:
       labels:
         app: mongo-express
-    spec: 
+    spec:
       containers:
       - name: mongo-express
         image: mongo-express
@@ -21,20 +21,14 @@ spec:
         - containerPort: 8081
         env:
         - name: ME_CONFIG_MONGODB_ADMINUSERNAME
-          valueFrom: 
-            secretKeyRef:
-              name: mongodb-secret
-              key: mongo-root-username
-        - name: ME_CONFIG_MONGODB_ADMINPASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mongodb-secret
-              key: mongo-root-password
+          value: root
         - name: ME_CONFIG_MONGODB_SERVER
+          value: mongodb-0.mongodb-headless
+        - name: ME_CONFIG_MONGODB_ADMINPASSWORD 
           valueFrom:
-            configMapKeyRef:
-              name: mongodb-configmap
-              key: database_url
+            secretKeyRef:
+              name: mongodb
+              key: mongodb-root-password
 ---
 apiVersion: v1
 kind: Service
@@ -43,9 +37,7 @@ metadata:
 spec:
   selector:
     app: mongo-express
-  type: LoadBalancer # External service 
   ports:
-  - protocol: TCP
-    port: 8081
-    targetPort: 8081
-    nodePort: 30000 # Port used for external IP address (browser)
+    - protocol: TCP
+      port: 8081
+      targetPort: 8081

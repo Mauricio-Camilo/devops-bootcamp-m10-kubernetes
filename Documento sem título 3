@@ -1,0 +1,108 @@
+- Criar o K8s cluster no Linode
+
+Dentro do Linode, foi criado um Shared CPU Linode de 4 GB, duas instâncias;
+
+Ao terminar de criar o cluster, foi baixado o arquivo com as informações de acesso, para poder rodar comandos kubectl localmente dentro desse cluster
+
+Setar o kubeconfig como uma variavel de ambiente
+
+chmod 400 test-kubeconfig.yaml
+
+export KUBECONFIG=test-kubeconfig.yaml
+
+- imagem 1
+
+Ao verificar com kubectl get node, é possível notar os 2 Linode worker nodes, o que indica que foi feita a conxeção com o Linode é possivel fazer o deploy usando comandos kubectl.
+
+- Deploy mongodb statefulset
+
+Instalar heml 
+
+Adicionar o repositório que contem o helmchart
+
+helm repo add bitnami https://charts.bitnami.com/bitnami
+
+Pode-se ver agora que o bitnami está conectado, e o repositório do mongodb está instalado no cluster
+
+- Imagem 2
+
+- Configurando o mondodb
+
+O mongodb deve ser configurado para rodar com alguns parâmetros com valores diferentes do que vem em default (como configurar o statefulset, senha e volume). Os parâmetros são verificados na documentação fornecida.
+
+um arquivo será criado para sobrepor esses parâmetros (heml-mongodb.yaml). Por meio da configuração desse arquivo, o cluster vai conectar com o Linode, criar um physical storage, atachar ao pod e sobrepor a senha.
+
+Agora, para instalar o chart e usar esses parâmetros, roda o comando: helm install mongodb --values helm-mongodb.yaml bitnami/mongodb
+
+- imagem 3
+
+Pode-se ver todos os recursos criados com o helm. Além disso, no Linode também foram criados 3 volumes, um para cada replica. Isso conclui a etapa de deploy do mongodb usando helm, que diferente do projeto anterior, não teve a necessidade de criar um deployment para essa aplicação.
+
+  mongodb-root-password: c2VjcmV0LXJvb3QtcHdk
+
+- Deploy do mongo-express
+
+O deploy do mongo-express é mais simples, com 1 pod e 1 service, então será usado um arquivo yaml que contém as configurações do deployment/service, que foi semelhante ao descrito no projeto 1. Porém, não foi usado o nodePort, pois será configurado um ingress para poder acessar ele do navegador
+
+kubectl apply -f helm-mongo-express.yaml
+
+
+- Instalar ingress controller com helm
+
+Primeiro será adicionado o rpeositório do helm chart, que no caso é um ingress que usa nginx, e depois será instalado:
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+
+helm install nginx-ingress ingress-nginx/ingress-nginx --set controller.publishService.enabled=true
+
+- imagem 4
+
+Agora que o ingress está rodando, regras de ingress no cluster, como rotas e domain names. No Linode, foi criado também um node-balancer, que virou o entry-point do cluster, pois associou ao serviço criado dentro do cluster com um IP externo que é o mesmo usado no node-balancer.
+
+Agora será criada uma regra para que o mongo-express possa ser acessado pelo navegador.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    name: mongo-express
+spec:
+  rules:
+  - host: 172-233-3-68.ip.linodeusercontent.com # Host name of nodeBalancer 
+    http:
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: mongo-express-service
+              port:
+                number: 8081
+                
+Nessa configuração, em host, foi usado o host name fornecido pelo nodeBalancer, porém em produção é utilizado o DNS da aplicação. Também associamos o service criado do mongo-express, usando o nome e a porta.
+
+kubectl apply -f helm-ingress.yaml
+
+Ao criar o ingress, a aplicação agora está acessivel ao mundo externo, e pode ser acessada pelo navegador utilizando o hostname setado na regra do ingress.
+
+- imagem 5
+
+Commo a aplicação tem volumes associados aos pods, mesmo que os pods caiam e subam, os dados armazenados nos volumes serão reatachados aos pods.
+
+kubectl scale --replicas=0 statefulset/mongodb
+
+kubectl scale --replicas=3 statefulset/mongodb
+
+Outra vantagem a ser mencionada sobre o uso do helm é que basta executar o comando helm uninstall mongodb para reverter tudo o que foi instalado. Da forma convencional, cada arquivo que foi subido deveria ser removido manualmente.
+
+Após o uninstall, os volumes do Linode estão com status de Unattached, porém se a aplicação do mongodb subir novamente, ela pode ser attachada a eles, para recuperar as informações previamente salvas.
+
+
+
+
+
+
+
+
+
