@@ -273,6 +273,227 @@ The files used in this project can be found in this repository, under the folder
 
   After entering the container, we can confirm that the secret.file was successfully created, and the mosquitto.conf file was updated with the content defined in the ConfigMap.
 
+# Demo Project 3
+
+Install a stateful service (MongoDB) on Kubernetes usingHelm
+
+## Technologies Used
+
+K8s, Helm, MongoDB, Mongo Express, Linode LKE, Linux
+
+## Project Description
+
+- Create a managed K8s cluster with Linode Kubernetes Engine
+- Deploy replicated MongoDB service in LKE cluster using a Helm chart
+- Configure data persistence for MongoDB with Linode’s cloud storage
+- Deploy UI client Mongo Express for MongoDB
+- Deploy and configure nginx ingress to access the UI application from browser
+
+### Details of project
+
+- Deploying a Kubernetes Cluster on Linode
+
+  1- Create the K8s Cluster on Linode
+  Within Linode, two instances of a 4 GB Shared CPU Linode were created.
+
+  2- Cluster Access Configuration
+  After setting up the cluster, the access file was downloaded to allow local kubectl commands within the cluster.
+
+  3- Setting the kubeconfig as an Environment Variable
+
+  ```
+    chmod 400 test-kubeconfig.yaml
+    export KUBECONFIG=test-kubeconfig.yaml
+  ```
+
+  ![Diagram](./images/k8s-project3-1.png)
+
+  4- Verification of Cluster Nodes 
+  By running kubectl get node, it can be observed the two Linode worker nodes, indicating that the connection to Linode is established, and deployments can be managed using kubectl.
+
+- Deploying MongoDB StatefulSet
+
+  The Helm was installed and the repository containing the MongoDB Helm chart was addes:
+
+  ```
+    helm repo add bitnami https://charts.bitnami.com/bitnami
+  ```
+
+  Now that Bitnami is connected, the MongoDB repository is accessible on the cluster.
+
+  ![Diagram](./images/k8s-project3-2.png)
+
+- Configuring MongoDB
+
+  MongoDB requires custom configurations (such as StatefulSet, password, and volume settings). These parameters are available in the official documentation.
+  A custom file (helm-mongodb.yaml) will be created to override these parameters, connecting the cluster with Linode, creating physical storage, attaching it to the pod, and setting a custom password.
+
+- Install MongoDB Chart with Custom Configurations
+
+  ```
+    helm install mongodb --values helm-mongodb.yaml bitnami/mongodb
+  ```
+  ![Diagram](./images/k8s-project3-3.png)
+
+  All resources created with Helm can be observed, including three volumes on Linode—one for each replica—completing the MongoDB deployment via Helm. Unlike the previous project, a separate deployment wasn’t required.
+
+- Deploying Mongo Express
+  Mongo Express is simpler to deploy with a single pod and service, configured in a YAML file similar to Project 1. However, no nodePort is used here, as an Ingress will be set up for browser access.
+
+  ```
+    kubectl apply -f helm-mongo-express.yaml
+  ```
+
+- Installing the Ingress Controller with Helm
+
+  Add and Install the Ingress NGINX Helm Chart
+
+  ```
+    helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  ```
+  ```
+    helm install nginx-ingress ingress-nginx/ingress-nginx --set controller.publishService.enabled=true
+  ```
+
+  ![Diagram](./images/k8s-project3-4.png)
+
+  Now that the Ingress is running, Ingress rules for routes and domain names can be added. In Linode, a NodeBalancer was also created to serve as the cluster’s entry point, associating the internal service with an external IP. The file containing the ingress rules is helm-ingresss.yaml.
+
+  In this file, the host uses the NodeBalancer’s hostname; however, in production, the app’s DNS is preferred. This configuration associates the Mongo Express service with the specified port. To apply the ingress configuration:
+
+- Applying the Ingress Configuration
+
+  ```
+    kubectl apply -f helm-ingress.yaml
+  ```
+
+  After creating the Ingress, the application is accessible externally via the hostname defined in the Ingress rule.
+
+  ![Diagram](./images/k8s-project3-4.png)
+
+- Persistent Volume Management and Scaling
+
+  Since the application uses persistent volumes, data will be reattached even if the pods are restarted.
+
+  ```
+    kubectl scale --replicas=0 statefulset/mongodb
+  ```
+  ```
+    kubectl scale --replicas=3 statefulset/mongodb
+  ```
+
+  One benefit of using Helm is the ability to easily uninstall with a single command:
+
+  ```
+    helm uninstall mongodb
+  ```
+
+  After uninstalling, the Linode volumes will have an "Unattached" status. However, they can be reattached if MongoDB is redeployed, allowing previously stored information to be recovered.
+
+# Demo Project 4
+
+Deploy our web application in K8s cluster from private Docker registry
+
+## Technologies Used
+
+Kubernetes, Helm, AWS ECR, Docker
+
+## Project Description
+
+- Create Secret for credentials for the private Docker registry
+- Configure the Docker registry secret in application Deployment component
+- Deploy web application image from our private Docker registry in K8s cluster
+
+### Details of project
+
+- Docker login inside minikube
+
+  As shown in the demo video, the application was uploaded to Amazon ECR so the same commands could be applied, but with the credentials of my own repository. The login to docker repository command was provided by ECR:
+
+  ```
+    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 808826729764.dkr.ecr.us-east-1.amazonaws.com
+  ```
+
+  Even though I completed the login, Minikube doesn’t have access to the credentials stored on my PC. Therefore, a different method was used to log in to the repository through Minikube.
+
+  First, extract the login token by running:
+
+  ```
+    aws ecr get-login-password
+  ```
+
+  SSH into Minikube
+
+  ```
+    minikube ssh
+  ```
+
+  Use the docker login command within Minikube, but instead of using a password, use the token generated in the previous step along with the ECR URL:
+
+  ```
+    docker login --username AWS -p <TOKEN> 808826729764.dkr.ecr.us-east-1.amazonaws.com
+  ```
+  
+  After this command is executed, a .docker folder with config.json is generated in Minikube, containing the token as repository access credentials. This will be used in the Secret.
+
+- Create the Secret with credentials (docker-secret.yaml)
+
+  A Secret file was created with the dockerconfigjson type, where the .dockerconfigjson attribute value is the Base64-encrypted content of the config.json file. To do this, the file was copied from Minikube to the host for use with kubectl.
+
+  ```
+    minikube cp minikube:/home/docker/.docker/config.json /home/username/.docker/config.json
+  ```
+  
+  The content on the host was then replaced with the one from Minikube, allowing it to be converted to Base64 and included in the Secret:
+
+  ``` 
+    cat .docker/config.json | base64
+  ```
+  
+  Another way to create the Secret is by using a command that creates a generic Secret and sets the values, inserting them into the attributes using the .docker/config.json file directly:
+
+  ``` 
+    kubectl create secret generic my-registry-key --from-file=.dockerconfigjson=.docker/config.json --type=kubernetes.io/dockerconfigjson
+  ``` 
+
+  ![Diagram](./images/k8s-project4-1.png)
+
+  Additionally, the Secret can be created in a single command by setting the Secret type as docker-registry and configuring the server, username, and password directly:
+
+  ``` 
+    kubectl create secret docker-registry my-registry-key-two \
+    --docker-server=https://808826729764.dkr.ecr.us-east-1.amazonaws.com \
+    --docker-username=AWS \
+    --docker-password=<TOKEN>
+  ``` 
+  
+  This approach allows Minikube to access the private repository securely, ensuring credentials are handled appropriately.
+
+- Create the deployment (my-app-deployment.yaml)
+
+  The deployment file includes the essential configurations to launch the pod. In the containers section, set the image field to the URI of your ECR repository image. Additionally, use the imagePullPolicy attribute to ensure the deployment always pulls the latest image from ECR, even if a local version exists. Configure it to use the previously created Secret by setting the imagePullSecrets attribute.
+
+  Run the kubectl describe command on the pod to verify that the image has been successfully pulled from ECR:
+
+  ![Diagram](./images/k8s-project4-2.png)
+  
+  Ensure that the Secret is located in the same namespace as the deployment, as Kubernetes will only access the Secret if they share a namespace.
+
+# Demo Project 5
+
+Deploy our web application in K8s cluster from private Docker registry
+
+## Technologies Used
+
+Kubernetes, Helm, AWS ECR, Docker
+
+## Project Description
+
+- Create Secret for credentials for the private Docker registry
+- Configure the Docker registry secret in application Deployment component
+- Deploy web application image from our private Docker registry in K8s cluster
+
+### Details of project
 
 
 
