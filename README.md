@@ -481,23 +481,321 @@ Kubernetes, Helm, AWS ECR, Docker
 
 # Demo Project 5
 
-Deploy our web application in K8s cluster from private Docker registry
+Deploy Microservices application in Kubernetes with Production & Security Best Practices
 
 ## Technologies Used
 
-Kubernetes, Helm, AWS ECR, Docker
+Kubernetes, Redis, Linux, Linode LKE
 
 ## Project Description
 
-- Create Secret for credentials for the private Docker registry
-- Configure the Docker registry secret in application Deployment component
-- Deploy web application image from our private Docker registry in K8s cluster
+- Create K8s manifests for Deployments and Services for all microservices of an online shop application
+- Deploy microservices to Linode’s managed Kubernetes cluster
 
 ### Details of project
 
+- Deployment and Service Configuration of Microservices
 
+  In this step, a single config.yaml file will be used to define all deployments and services for the 10 microservices in the application, along with a deployment for Redis. The configurations will include the names of the microservices, their interconnections, the environment variables required to run the application, and the accessible ports.
 
+  - Email Service
 
+    Image: gcr.io/google-samples/microservices-demo/emailservice:v0.8.0
+    Container port: 8080
+    Service port: 5000
+    Env: PORT=8080
 
+  - Product Catalog Service (connects to the product catalog service)
 
+    Image: gcr.io/google-samples/microservices-demo/productcatalogservice:v0.8.0
+    Container and Service port: 3550
+    Env: PORT=3550
 
+  - Recommendation Service (connects to the product catalog service)
+
+    Image: gcr.io/google-samples/microservices-demo/recommendationservice:v0.8.0
+    Container and Service port: 8080
+    Env: PORT=8080
+    Env: PRODUCT_CATALOG_SERVICE_ADDR="productcatalogservice:3550"
+
+  - Payment Service
+
+    Image: gcr.io/google-samples/microservices-demo/paymentservice:v0.8.0
+    Container and Service port: 50051
+    Env: PORT=50051
+    Env: DISABLE_PROFILER=1
+
+  - Currency Service
+
+    Image: gcr.io/google-samples/microservices-demo/currencyservice:v0.8.0
+    Container and Service port: 7000
+    Env: PORT=7000
+    Env: DISABLE_PROFILER=1
+
+  - Shipping Service
+
+    Image: gcr.io/google-samples/microservices-demo/shippingservice:v0.8.0
+    Container and Service port: 50051
+    Env: PORT=50051
+
+  - Ad Service
+
+    Image: gcr.io/google-samples/microservices-demo/adservice:v0.8.0
+    Container and Service port: 9555
+    Env: PORT=9555
+
+  - Redis Service
+
+    Image: redis:alpine (Docker Hub)
+    Container and Service port: 6379
+
+  - Cart Service (connects to Redis)
+
+    Image: gcr.io/google-samples/microservices-demo/cartservice:v0.8.0
+    Container and Service port: 7070
+    Env: PORT=7070
+    Env: REDIS_ADDR="redis-cart:6379"
+
+  - Checkout Service (connects to 6 microservices)
+
+    Image: gcr.io/google-samples/microservices-demo/checkoutservice:v0.8.0
+    Container and Service port: 5050
+    Env: PORT=5050
+    Multiple connection variables: PRODUCT_CATALOG_SERVICE_ADDR, SHIPPING_SERVICE_ADDR, PAYMENT_SERVICE_ADDR, EMAIL_SERVICE_ADDR, CURRENCY_SERVICE_ADDR, CART_SERVICE_ADDR
+
+  - Frontend (connects to 7 microservices)
+
+    Image: gcr.io/google-samples/microservices-demo/frontend:v0.8.0
+    Container and Service port: 8080
+    Node port: 30007
+    Multiple connection variables for other services.
+
+- Deploy Microservices to K8s Cluster
+  A Kubernetes cluster was created on Linode, with the connection file downloaded and secured with chmod 400. The environment was set with export KUBECONFIG to use the Linode configuration file.
+
+  Steps:
+
+  Create a namespace for the microservices deployment:
+
+  ```
+    kubectl create ns microservice
+  ```
+
+  Deploy the services:
+
+  ```
+    kubectl apply -f config.yaml -n microservice
+  ```
+
+  Once deployed, the application can be accessed via any IP address of the 3 Linode nodes on port 30007.
+
+  ![Diagram](./images/k8s-project5-1.png)
+
+- Kubernetes Deployment Best Practices
+
+  Pinned Tag Versions for Container Images: All images are pinned to a specific version, here v0.8.0, to ensure consistent deployments.
+
+  Liveness Probe for Each Container: Enables Kubernetes to monitor application health and restart containers when necessary.
+
+  ```
+    livenessProbe:
+      grpc:
+        port: 8080
+      periodSeconds: 5
+  ```
+
+  Readiness Probe for Each Container: Ensures that containers are only marked as ready when they are ready to receive traffic.
+
+  ```
+    readinessProbe:
+      grpc:
+        port: 3550
+      periodSeconds: 5
+  ```
+
+  Different protocols, like HTTP for frontend and TCP for Redis, were configured as needed.
+
+  Resource Requests and Limits: Sets CPU and memory requests and limits to manage resource allocation.
+
+  ```
+    resources:
+      requests:
+        cpu: 70m
+        memory: 200Mi
+      limits:
+        cpu: 125m
+        memory: 300Mi
+  ```
+    
+  Avoid NodePort Exposure: NodePort is insecure as it opens ports on all worker nodes. Instead, use a LoadBalancer service or Ingress to manage single-entry points.
+
+  Multiple Replicas per Pod: Ensures high availability by having at least two replicas for each microservice.
+
+  Multiple Worker Nodes: Protects against downtime if a single server fails or requires maintenance.
+
+  Use of Labels and Namespaces: Labels group related pods, while namespaces isolate components and facilitate cluster management, providing flexible access control across teams.
+
+# Demo Project 6
+
+Create Helm Chart for Microservices
+
+## Technologies Used
+
+Kubernetes, Helm
+
+## Project Description
+
+- Create 1 shared Helm Chart for all microservices, to reuse common Deployment and Service configurations for the services
+
+### Details of project
+
+  In this project, a single Helm chart was created for all microservices due to their similar configurations.
+
+  First, a Helm chart was generated with the following command:
+
+  ```
+    helm create microservice
+  ```
+
+  This command created a directory containing some standard configuration files.
+
+  - chart.yaml: Metadata about the chart
+  - charts: Directory that contains chart dependencies
+  - .helmignore: Files excluded from the Helm chart
+  - templates: Directory for creating Kubernetes YAML files
+  - values.yaml: Contains values used in the templates
+
+- Configuring the templates/deployment.yaml and service.yaml files
+
+  The deployment file was based on a template used in previous projects. Placeholders were used for each attribute's values, as shown in the following example:
+
+  ```
+    name: {{ .Values.varName }}
+  ```
+  The Values is a built-in object that takes values from the values.yaml file. With this setup, modifying values in this file will automatically update the deployment.
+
+  In the service file, additional variables were created for the service type, such as load balancer for certain cases, and ports, which may differ from the target port.
+
+- Dynamic Environment Variables
+
+  Each microservice has a unique set of environment variables. To handle this in the template, a built-in function called range was used to iterate over and populate the template dynamically.
+
+  ```
+    env:
+    {{- range .Values.containerEnvVars }}
+      - name: {{ .name }}
+        value: {{ .value | quote }}
+    {{- end }}
+  ```
+
+- Setting Values
+
+  Each microservice has a .yaml file containing the values that will be used in both the deployment and service templates. This centralizes configuration for each microservice in a single YAML file. To verify the correctness of the created templates, the command below was used:
+
+  ```
+    helm template -f service.yaml microservice
+  ```
+
+  If there are syntax errors in the template, this command will display them. If the template is correct, it will show a preview of the values that will be used for resource creation.
+
+  The helm lint command can also be used to check for errors or warnings.
+
+# Demo Project 7
+
+Deploy Microservices with Helmfile
+
+## Technologies Used
+
+Kubernetes, Helm, Helmfile
+
+## Project Description
+
+- Deploy Microservices with Helm
+- Deploy Microservices with Helmfile
+
+### Details of project
+
+- Deploying the Microservice
+
+  ```
+  helm install -f service.yaml releasename microservice
+  ```
+  ![Diagram](./images/k8s-project7-1.png)
+
+  The image above shows the successful deployment of the email service.
+
+- Creating Values Files for All Microservices
+
+  Once the process was validated for one microservice, additional values files were created for the other microservices in the values folder. Each microservice can then be deployed with the following command:
+
+  ```
+    helm install -f values/recommendation-service-values.yaml recommendationservice microservice
+  ```
+
+- Redis Configuration
+
+  As Redis is a third-party application, it does not follow the same template created for the microservices and requires separate configuration.
+
+  Creating Redis Helm Chart
+
+  ```
+    helm create redis
+  ```
+
+  In the newly created folder, new deployment and service files were configured specifically for Redis. Both the microservice Helm chart and Redis chart were placed in a folder named charts. To validate the Redis template:
+
+  ```
+  helm template -f values/redis-values.yaml charts/redis
+  ```
+
+  ![Diagram](./images/k8s-project7-2.png)
+
+  The image above shows that the template is validated with the values to be used in the deployment creation.
+
+- Deploying All Microservices
+
+  To automate the deployment of all microservices, a shell script (install.sh) was created to run all the necessary commands.
+
+  ```
+    chmod u+x install.sh
+    ./install.sh
+  ```
+  
+- Using Helmfile for an Elegant Deployment
+
+  Rather than running the same command multiple times, Helmfile can be used for a more efficient deployment. First, Helm releases were uninstalled using a script (uninstall.sh).
+
+  Creating a Helmfile
+  
+  This YAML file is organized by releases and includes attributes like:
+
+  ```
+    releases:
+      - name: rediscart
+        chart: charts/redis # path to the helm chart
+        values:
+          - values/redis-values.yaml # path to the values file
+          - appReplicas: "1" # name of the replica variable
+          - volumeName: "redis-cart-data"
+  ```
+
+  Helmfile had been previously installed in earlier demos. To use it, run:
+
+  ```
+    helmfile sync
+  ```
+
+  ![Diagram](./images/k8s-project7-4.png)
+
+  The image above shows the command output, which prepares all releases, compares the current cluster state with the desired state in the Helmfile, and plans the installations and deployments required to reach the desired state. Running kubectl get pod confirms that all microservices are active.
+
+  ![Diagram](./images/k8s-project7-5.png)
+
+  Here is shown the application running when accessed via the IP address of the Linode node balancer.
+
+- Uninstalling Releases
+  All releases can be removed with the following command:
+
+  ```
+    helmfile destroy
+  ```
